@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="6c738ab9-cdee-4706-a91b-3f1d4e317c31" name="eksawswl">
+        <fileTransfer rootFolder="/home/eksawswl" accessType="SFTP" host="52.213.12.39" port="22" sshConfigId="0625121f-b046-428b-9f1c-797ac9df9739" sshConfig="eksawswl@52.213.12.39:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
