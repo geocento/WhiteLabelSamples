@@ -1,6 +1,6 @@
-import sys, os, json, re, math
+import sys, os, re, math
 
-from osgeo import gdal, osr, ogr
+from osgeo import gdal, ogr
 
 sys.path.append('/usr/bin/')
 import time
