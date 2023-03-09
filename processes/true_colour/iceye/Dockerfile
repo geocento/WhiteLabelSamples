@@ -5,13 +5,16 @@ RUN apt-get update && apt-get install -y \
 
 ENV PYTHONUNBUFFERED 1
 
-COPY ./sentinel2/requirements.txt ./
+COPY ./iceye/requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 COPY ./common/gdal_*.py /usr/bin/
 
 RUN mkdir -p scripts/
+RUN mkdir -p scripts/data
 
-COPY ./sentinel2/Main.py ./common/generic.py scripts/
+COPY ./iceye/Main.py ./common/generic.py scripts/
+
+COPY ./iceye/data/* scripts/data/
 
 ENTRYPOINT ["/usr/bin/python3", "scripts/Main.py"]

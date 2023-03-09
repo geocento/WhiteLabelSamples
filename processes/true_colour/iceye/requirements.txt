@@ -1,0 +1,5 @@
+pyshp
+shapely
+requests
+scikit-image
+scipy

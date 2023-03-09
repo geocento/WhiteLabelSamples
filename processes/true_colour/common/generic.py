@@ -1,9 +1,23 @@
-import sys, os, json, numpy as np, math
+import sys, os, json, re, numpy as np, math
 
+import osgeo
 from osgeo import gdal, osr, ogr
 
 import warnings
 warnings.filterwarnings("ignore")
+
+from ast import literal_eval
+
+sys.path.append('/usr/bin/')
+import gdal_pansharpen
+
+print(str(np.__path__))
+
+srs_4326 = osr.SpatialReference()
+srs_4326.ImportFromEPSG(4326)
+if int(osgeo.__version__[0]) >= 3:
+    # GDAL 3 changes axis order: https://github.com/OSGeo/gdal/issues/1546
+    srs_4326.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 
 def calculateCutline(footprintGeometryWKT, aoiWKT):
     # calculate intersection
@@ -11,7 +25,7 @@ def calculateCutline(footprintGeometryWKT, aoiWKT):
         print("No intersection provided!")
         return
 
-    aoiGeometry = ogr.CreateGeometryFromWkt(aoiWKT)
+    aoiGeometry = ogr.CreateGeometryFromWkt(aoiWKT, srs_4326)
     footprintGeometry = ogr.CreateGeometryFromWkt(footprintGeometryWKT)
 
     intersectionGeometry = footprintGeometry.Intersection(aoiGeometry)
@@ -49,7 +63,7 @@ def writeOutput(directory, success, message, products):
         "message": message,
         "products": products
     }
-    with open(directory + '/output.json', 'w') as outfile:
+    with open(os.path.join(directory, 'output.json'), 'w') as outfile:
         json.dump(outputValues, outfile)
 
 def getDatasetFootprint(datafile):
@@ -125,14 +139,13 @@ def getDatasetFootprint(datafile):
     wktGeometry = "POLYGON((" + toWKT(0, 0)  + ", " + toWKT(0, rows) + ", " + toWKT(cols, rows) + ", " + toWKT(cols, 0) + ", " + toWKT(0, 0) + "))"
     print("Footprint geometry " + wktGeometry + ", projection is " + projection)
 
-    footprint = ogr.CreateGeometryFromWkt(wktGeometry)
+    footprint = ogr.CreateGeometryFromWkt(wktGeometry, srs_4326)
 
     # now make sure we have the footprint in 4326
     if projection is not None:
         source = osr.SpatialReference(projection)
-        target = osr.SpatialReference()
-        target.ImportFromEPSG(4326)
-        transform = osr.CoordinateTransformation(source, target)
+        source.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        transform = osr.CoordinateTransformation(source, srs_4326)
         footprint.Transform(transform)
         print("Footprint geometry reprojected " + footprint.ExportToWkt())
 
@@ -260,100 +273,285 @@ def getSimpleScaleParams(datafile, maxScale = None, numBands = 3):
 
     return [scaleParams, exponents];
 
-def getCumulativeCountScaleParams(datafile, maxScale = None, numBands = 3):
+
+def get_cumulative_scale_params(datafile, max_scale = None, num_bands = None):
 
     if datafile is None:
         print('No dataset provided')
         return None
 
     # check number of bands
-    # if RGB bands are supposed to be ordered as RGB already
-    bandList = range(1, numBands + 1)
-    print(str(bandList))
+    if num_bands is None:
+        num_bands = datafile.RasterCount
+
+    band_list = range(1, num_bands + 1)
+    print('Band list to process ', band_list)
 
     threshold = 1e8
     scaleParams = []
     exponents = []
-    for band in bandList:
+    for band in band_list:
 
         print("[ GETTING BAND ]: ", band)
         srcband = datafile.GetRasterBand(band)
         if srcband is None:
             continue
-        
+
         # check if we have a no data value
         noData = srcband.GetNoDataValue()
 
-        # check size and divide in smaller chunks if needed
-        width = srcband.XSize
-        height = srcband.YSize
-        imageSize = width * height
-        chunks = int(math.ceil(imageSize / threshold))
-        chunkHeight = float(height) / chunks
-        
-        # calculate the min max to stretch to
-        dataType = srcband.DataType
-        if dataType == 1:
-            minBin = 0
-            maxBin = 255
-        elif dataType == 2:
-            minBin = 0
-            maxBin = 65535
-        elif dataType == 3:
-            minBin = -32768
-            maxBin = 32767
-        else:
-            print("Unknown data type provided for this band, value is " + str(dataType) + ", exiting")
-            sys.exit(-1)
+        values = srcband.ReadAsArray()
+        if noData is not None:
+            values = values[values != noData]
 
-        # if no max scale is provided calculate the min max to stretch to
-        if maxScale is None:
-            print('No max scale provided, using default value')
-            if dataType == 1:
-                maxScale = 255
-            elif dataType == 2 or dataType == 3:
-                maxScale = 65535
-            else:
-                maxScale = 255
-
-        cumulatedHistSize = 0
-        histogram = None
-        # do calculations over chunks
-        print("Calculate value over chunks with width ", width, " height ", height, " chunks ", chunks, " chunkHeight ", chunkHeight)
-        for chunk in range(0, chunks):
-            startHeight = int(math.floor(chunk * chunkHeight))
-            stopHeight = int(min(math.floor((chunk + 1) * chunkHeight), height) - startHeight)
-            print("Get min max values for image values between ", startHeight, " and ", (startHeight + stopHeight))
-            arr = srcband.ReadAsArray(0, startHeight, width, stopHeight)
-            if noData is not None:
-                arr = arr[arr != noData]
-            cumulatedHistSize += arr.size
-            print("Band size ", arr.size, " standard deviation ", np.std(arr), " and mean ", np.mean(arr))
-            hist, bin_edges = np.histogram(arr, bins = maxBin - minBin, range = [minBin, maxBin])
-            if histogram is None:
-                histogram = hist
-            else:
-                histogram = histogram + hist
-
-        print("Cumulated histogram size ", cumulatedHistSize, " standard deviation ", np.std(histogram), " and mean ", np.mean(histogram))
-
-        # now work out min and max
-        minValue = None
-        maxValue = None
-        sumValues = 0
-        for value in range(0, len(histogram)):
-            sumValues = sumValues + histogram[value]
-            if minValue is None and sumValues > cumulatedHistSize * 0.02:
-                minValue = range(minBin, maxBin)[value]
-            if maxValue is None and sumValues > cumulatedHistSize * 0.98:
-                maxValue = range(minBin, maxBin)[value]
-                break
+        min_max = np.nanpercentile(values, [2, 98])
 
         # do scaling on a band basis
-        scaleParams.append([minValue, maxValue, 1, maxScale])
+        scaleParams.append([min_max[0], min_max[1], 1, max_scale])
         exponents.append(0.5)
 
     print("Scale value is " + str(scaleParams))
 
     return [scaleParams, None];
-    
+
+def generateWarpFile(outputDirectory, warpedFilePath, ds, withAlpha = True, srcNoData = None):
+    footprintGeometryWKT = getDatasetFootprint(ds)
+    gdal.Warp(warpedFilePath, ds, format = 'VRT',
+              srcNodata = srcNoData,
+              dstAlpha = True,
+              dstSRS = 'EPSG:4326')
+    return footprintGeometryWKT
+
+def findFiles(directory, extension):
+    print("scanning directory " + directory + " for files with extension " + str(extension))
+    foundFiles = []
+    for dirpath, dirnames, files in os.walk(directory):
+        for name in files:
+            print("file " + name)
+            if name.lower().endswith(extension):
+                print("Adding file " + name + " at " + dirpath)
+                foundFiles.append(os.path.join(dirpath, name))
+    return foundFiles
+
+def findFilesRegexp(directory, regexp):
+    print("scanning directory " + directory + " for files with regex " + str(regexp))
+    foundFiles = []
+    for dirpath, dirnames, files in os.walk(directory):
+        for name in files:
+            print("file " + name)
+            if re.match(regexp, name):
+                print("Adding file " + name + " at " + dirpath)
+                foundFiles.append(os.path.join(dirpath, name))
+    return foundFiles
+
+def findDirectory(directory, substring):
+    print("scanning directory " + directory + " for directories with pattern " + str(substring))
+    foundFiles = []
+    for dirpath, dirnames, files in os.walk(directory):
+        for name in dirnames:
+            print("directory " + name)
+            if substring.lower() in name.lower():
+                print("Adding directory " + name + " at " + dirpath)
+                foundFiles.append(os.path.join(dirpath, name))
+    return foundFiles
+
+def executeWarp(ds, cutlineFilePath):
+    return gdal.Warp('temp', ds, format = 'MEM', cutlineDSName = cutlineFilePath, srcNodata = 0, dstAlpha = True, cropToCutline = True, dstSRS = 'EPSG:4326')
+
+def executeOverviews(ds):
+    # TODO - calculate based on the size of the image
+    overviewList = [ 2**j for j in range(1, max(1, int(math.floor(math.log(max(ds.RasterXSize / 256, 1), 2))))) ]
+    ds.BuildOverviews("AVERAGE", overviewList)
+
+def hasRPC(filePath):
+    ds = gdal.Open(filePath)
+    if ds.GetMetadata('RPC'):
+        return True
+    else:
+        return False
+
+def sanitizeFiles(files):
+    sanitizedFiles = []
+    for file in files:
+        # check if rpc
+        if hasRPC(file):
+            # try with rpcs
+            fileRpc = os.path.join(os.path.dirname(file), os.path.splitext(file)[0] + "_rpc.vrt")
+            ds = applyRPCs(file, fileRpc)
+            sanitizedFiles.append(fileRpc)
+        else:
+            # do nothing
+            sanitizedFiles.append(file)
+    return sanitizedFiles
+
+def getNodata(ds):
+    # assumes same value for all bands
+    return ds.GetRasterBand(1).GetNoDataValue()
+
+def panSharpen(outputDirectory, panFiles, bandFiles, bands = None, noData = None):
+
+    # create VRT with the files
+    if len(panFiles) == 1:
+        panFilePath = panFiles[0]
+    elif len(panFiles) > 1:
+        # mosaic the tif files
+        panFilePath = outputDirectory + '/panfiles.vrt'
+        gdal.BuildVRT(panFilePath, panFiles)
+    else:
+        sys.exit('No pan files')
+
+    if len(bandFiles) == 1:
+        bandsFilePath = bandFiles[0]
+    elif len(bandFiles) == 3:
+        # assumes bands are in the right order
+        bandsFilePath = outputDirectory + '/spectral.vrt'
+        gdal.BuildVRT(bandsFilePath, bandFiles, separate = True)
+    else:
+        sys.exit('No pan files')
+
+    panSharpenFilePath = outputDirectory + '/pansharpen.vrt';
+
+    parameters = ['', panFilePath, bandsFilePath, panSharpenFilePath,
+                  #'-co', 'PHOTOMETRIC=RGB',
+                  '-of', 'VRT']
+    if noData is not None:
+        parameters.append('-nodata')
+        parameters.append(noData)
+
+    if bands is not None:
+        addBandParameters(parameters, bands)
+
+    print("Pan sharpening parameters " + str(parameters))
+    gdal_pansharpen.gdal_pansharpen(parameters)
+
+    if not os.path.exists(panSharpenFilePath):
+        sys.exit("Pansharpen failed, no file at " + panSharpenFilePath)
+
+    return panSharpenFilePath
+
+def addBandParameters(parameters, bands):
+    for band in bands:
+        parameters.append('-b')
+        parameters.append(str(band))
+
+def fileType(filesPathArray, string, string2, outputArray, expectedLength):
+    returnStatus = True
+    for filePath in filesPathArray:
+        path, fileName = os.path.split(filePath)
+        if string and string2:
+            if string in fileName.upper():
+                outputArray.append(filePath)
+            elif string2 in fileName.upper():
+                outputArray.append(filePath)
+        elif string:
+            if string in fileName.upper():
+                outputArray.append(filePath)
+        else:
+            print("Missing string.")
+    # Check the correct number of files have been added to the array.
+    if len(outputArray) < expectedLength:
+        returnStatus = False
+        if string and string2:
+            print("Unable to locate file with " + string + " or " + string2 + " in filename.")
+        elif string:
+            print("Unable to locate file with " + string + " in filename.")
+    elif len(outputArray) > expectedLength:
+        returnStatus = False
+        if string and string2:
+            print("More than one file with " + string + " or " + string2 + " in filename.")
+        elif string:
+            print("More than one file with " + string + " in filename.")
+    return returnStatus
+
+def mosaic(filePathsArray, fileName, outputDirectory):
+    filePath = os.path.join(outputDirectory, fileName)
+    if len(filePathsArray) > 1: #If there is more than one pan file, mosaic the tiles.
+        gdal.BuildVRT(filePath, filePathsArray)
+        print("Mosaic complete.")
+    elif len(filePathsArray) == 1:
+        #Convert to vrt format.
+        gdal.Translate(filePath, filePathsArray[0], format = "VRT")
+        print("No mosaic necessary.")
+    else:
+        filePath = False
+    return filePath
+
+def convertBandNumber(value):
+    if value == 'B2':
+        return 1
+    elif value == 'B1':
+        return 2
+    elif value == 'B0':
+        return 3
+    else:
+        return None
+    #return int(value.lower().replace('b', '')) + 1
+
+def run_with_args(func, args=None):
+    """Parse arguments from ``sys.argv`` or given list of *args* and pass
+    them to *func*.
+    If ``--help`` is passed to program, print usage information.
+    """
+    args, kwargs = parse_args(args)
+    if kwargs.get('help'):
+        from inspect import getargspec
+        argspec = getargspec(func)
+        if argspec.defaults:
+            defaults_count = len(argspec.defaults)
+            args = argspec.args[:-defaults_count]
+            defaults = zip(argspec.args[-defaults_count:], argspec.defaults)
+        else:
+            args = argspec.args
+            defaults = []
+        usage = 'usage: %s [--help]' % sys.argv[0]
+        if args:
+            usage += ' ' + ' '.join(args)
+        if defaults:
+            usage += ' ' + ' '.join(('[%s=%r]' % pair for pair in defaults))
+        if argspec.varargs:
+            usage += ' ' + '*' + argspec.varargs
+        if argspec.keywords:
+            usage += ' ' + '**' + argspec.keywords
+        print(usage)
+    else:
+        return func(*args, **kwargs)
+
+
+def parse_args(args=None):
+    """Parse positional and keyword arguments from ``sys.argv`` or given list
+    of *args*.
+    :param args: list of string to parse, defaults to ``sys.argv[1:]``.
+    :return: :class:`tuple` of positional args and :class:`dict` of keyword
+        arguments.
+    Positional arguments have no specific syntax. Keyword arguments must be
+    written as ``--{keyword-name}={value}``::
+        >>> parse_args(['1', 'hello', 'True', '3.1415926', '--force=True'])
+        ((1, 'hello', True, 3.1415926), {'force': True})
+    """
+    if args is None:
+        args = sys.argv[1:]
+
+    positional_args, kwargs = (), {}
+    for arg in args:
+        if arg.startswith('--'):
+            arg = arg[2:]
+            try:
+                key, raw_value = arg.split('=', 1)
+                value = parse_literal(raw_value)
+            except ValueError:
+                key = arg
+                value = True
+            kwargs[key.replace('-', '_')] = value
+        else:
+            positional_args += (parse_literal(arg),)
+
+    return positional_args, kwargs
+
+
+def parse_literal(string):
+    """Parse Python literal or return *string* in case :func:`ast.literal_eval`
+    fails."""
+    try:
+        return literal_eval(string)
+    except (ValueError, SyntaxError):
+        return string

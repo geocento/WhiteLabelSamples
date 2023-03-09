@@ -125,8 +125,8 @@ def get_credentials(jsonCredentials, sandbox):
     if jsonCredentials is not None:
         try:
             # get the values using an assumed json {"scihubAPIUser": "XXX", "scihubAPIPass": "XXX"} but you can define any json you like
-            scihub_username = getParameter('scihubAPIUser', jsonCredentials)
-            scihub_password = getParameter('scihubAPIPass', jsonCredentials)
+            scihub_username = jsonCredentials['scihubAPIUser']
+            scihub_password = jsonCredentials['scihubAPIPass']
         except Exception as e:
             print(str(e))
     # if no value is available then use the default username and password
