@@ -191,21 +191,39 @@ def download_matching_dems(footprint_wkt):
     return dem_files
 
 def download_demfile_entity(tileid):
+    usgs_credentials = read_usgscredentials()
+    usgsusername = usgs_credentials['usgsusername']
+    usgspassword = usgs_credentials['usgspassword']
+
     file_name = tileid + ".SRTMGL3.hgt.zip"
     filepath = os.path.join(tmpfolder, file_name)
     url = "https://e4ftl01.cr.usgs.gov/MEASURES/SRTMGL3.003/2000.02.11/" + file_name
-    requests.get('https://urs.earthdata.nasa.gov/oauth/token', auth=(default_userName, default_password))
+    requests.get('https://urs.earthdata.nasa.gov/oauth/token', auth=(usgsusername, usgspassword))
 
     requests.session()
-    response = requests.get(url, auth=(default_userName, default_password), allow_redirects=False)
+    response = requests.get(url, auth=(usgsusername, usgspassword), allow_redirects=False)
     url = response.headers.get('Location')
-    with requests.get(url, auth=(default_userName, default_password), stream=True) as r:
+    with requests.get(url, auth=(usgsusername, usgspassword), stream=True) as r:
         with open(filepath, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk: # filter out keep-alive new chunks
                     f.write(chunk)
 
     return filepath
+
+
+def read_usgscredentials():
+    myprops = {}
+    with open('data/secrets', 'r') as f:
+        for line in f:
+            line = line.rstrip() #removes trailing whitespace and '\n' chars
+
+            if "=" not in line: continue #skips blanks and comments w/o =
+            if line.startswith("#"): continue #skips comments which contain =
+
+            k, v = line.split("=", 1)
+            myprops[k] = v
+    return myprops
 
 
 def clear_directory(directory):
