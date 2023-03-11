@@ -20,7 +20,6 @@ import requests
 import warnings
 warnings.filterwarnings("ignore")
 
-
 tmpfolder = '/tmp/iceye/'
 
 tiles_shapefile='data/srtm_grid_1deg.shp'
@@ -32,6 +31,7 @@ def Usage():
 def trueColour(input_directory, output_directory, productSpecifications = None):
 
     print("Product specifications: " + str(productSpecifications))
+    print("Shape file is present ", os.path.exists(tiles_shapefile))
 
     products = []
 
@@ -60,11 +60,12 @@ def trueColour(input_directory, output_directory, productSpecifications = None):
         # turn dem files to tiff and project in wgs84
         demfile = make_wgs84_tif_demfile(demfiles)
 
+        print('Orthorectifying the file')
         resultfile = os.path.join(tmpfolder, "orthofile.tif")
         ds = gdal.Warp(resultfile, ds_despeckled, transformerOptions=['RPC_DEM=' + demfile])
         ds_despeckled = None
 
-        print('Translating to tiff file')
+        print('Scaling and translating to tiff file')
         scaled_resultfile = os.path.join(tmpfolder, "scaled_orthofile.tif")
         ds_scaled = gdal.Translate(scaled_resultfile, ds, outputType = gdal.GDT_Byte, scaleParams = scaleParams, exponents = [0.5], format = 'GTiff')
         ds = None
@@ -159,16 +160,14 @@ def lee_filter(img, size):
     return img_output
 
 def make_wgs84_tif_demfile(zipped_demfiles):
-    demfiles = []
     unzip_directory = os.path.join(tmpfolder, 'zip')
+    # clear unzip directory first
+    clear_directory(unzip_directory)
     for demfile in zipped_demfiles:
         if os.path.basename(demfile).endswith(".zip"):
             with zipfile.ZipFile(demfile, 'r') as zip_ref:
-                # clear unzip directory first
-                clear_directory(unzip_directory)
                 zip_ref.extractall(unzip_directory)
-                demfile = generic.findFiles(tmpfolder, 'hgt')[0]
-        demfiles.append(demfile)
+    demfiles = generic.findFiles(tmpfolder, 'hgt')
 
     mosaicdem_file = os.path.join(tmpfolder, "demmosaic.tif")
     ds = gdal.Warp(mosaicdem_file, demfiles, format="GTiff", dstSRS = '+proj=longlat +datum=WGS84 +no_def')
@@ -190,20 +189,6 @@ def download_matching_dems(footprint_wkt):
             dem_files.append(download_demfile_entity(tile.GetField('id')))
 
     return dem_files
-
-def download_demfile(latitude, longitude):
-    if latitude >= 0:
-        entityId = 'N'
-    else:
-        entityId = 'S'
-    entityId = entityId + str(latitude)
-
-    if longitude >= 0:
-        entityId = 'E'
-    else:
-        entityId = 'W'
-    entityId = entityId + str(longitude)
-    download_demfile_entity(entityId)
 
 def download_demfile_entity(tileid):
     file_name = tileid + ".SRTMGL3.hgt.zip"

@@ -17,4 +17,6 @@ COPY ./iceye/Main.py ./common/generic.py scripts/
 
 COPY ./iceye/data/* scripts/data/
 
-ENTRYPOINT ["/usr/bin/python3", "scripts/Main.py"]
+WORKDIR scripts/
+
+ENTRYPOINT ["/usr/bin/python3", "Main.py"]
