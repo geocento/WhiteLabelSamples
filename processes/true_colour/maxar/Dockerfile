@@ -5,13 +5,13 @@ RUN apt-get update && apt-get install -y \
 
 ENV PYTHONUNBUFFERED 1
 
-COPY ./jilinnightvision/requirements.txt ./
+COPY ./maxar/requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 COPY ./common/gdal_*.py /usr/bin/
 
 RUN mkdir -p scripts/
 
-COPY ./jilinnightvision/Main.py ./common/generic.py scripts/
+COPY ./maxar/Main.py ./common/generic.py scripts/
 
 ENTRYPOINT ["/usr/bin/python3", "scripts/Main.py"]

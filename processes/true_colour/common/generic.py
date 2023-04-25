@@ -41,12 +41,12 @@ def createCutline(directory, intersectionWKT):
     if intersectionWKT is None:
         return
 
-    csvFileName = directory + '/cutline.csv'
+    csvFileName = os.path.join(directory, 'cutline.csv')
     csvFile = open(csvFileName, 'w')
     csvFile.write('ID, WKT\n')
     csvFile.write('1, "' + intersectionWKT + '"\n')
     csvFile.close()
-    prjFile = open(directory + '/cutline.prj', 'w')
+    prjFile = open(os.path.join(directory, 'cutline.prj'), 'w')
     prjFile.write('EPSG:4326')
     prjFile.close()
 
@@ -256,6 +256,10 @@ def getSimpleScaleParams(datafile, maxScale = None, numBands = 3):
             
     for band in bandList:
 
+        srcband = datafile.GetRasterBand(band)
+        if srcband is None:
+            continue
+
         # calculate the min max to stretch to
         dataType = srcband.DataType
         if maxScale is None:
@@ -388,14 +392,14 @@ def getNodata(ds):
     # assumes same value for all bands
     return ds.GetRasterBand(1).GetNoDataValue()
 
-def panSharpen(outputDirectory, panFiles, bandFiles, bands = None, noData = None):
+def panSharpen(outputDirectory, panFiles, bandFiles, bands=None, noData=None, basename=''):
 
     # create VRT with the files
     if len(panFiles) == 1:
         panFilePath = panFiles[0]
     elif len(panFiles) > 1:
         # mosaic the tif files
-        panFilePath = outputDirectory + '/panfiles.vrt'
+        panFilePath = os.path.join(outputDirectory, basename + 'panfiles.vrt')
         gdal.BuildVRT(panFilePath, panFiles)
     else:
         sys.exit('No pan files')
@@ -404,12 +408,12 @@ def panSharpen(outputDirectory, panFiles, bandFiles, bands = None, noData = None
         bandsFilePath = bandFiles[0]
     elif len(bandFiles) == 3:
         # assumes bands are in the right order
-        bandsFilePath = outputDirectory + '/spectral.vrt'
+        bandsFilePath = os.path.join(outputDirectory, basename + 'spectral.vrt')
         gdal.BuildVRT(bandsFilePath, bandFiles, separate = True)
     else:
         sys.exit('No pan files')
 
-    panSharpenFilePath = outputDirectory + '/pansharpen.vrt';
+    panSharpenFilePath = os.path.join(outputDirectory, basename + 'pansharpen.vrt')
 
     parameters = ['', panFilePath, bandsFilePath, panSharpenFilePath,
                   #'-co', 'PHOTOMETRIC=RGB',
