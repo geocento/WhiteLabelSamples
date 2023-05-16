@@ -1,5 +1,6 @@
 import sys, os, json, re, math
 
+import numpy as np
 from osgeo import gdal, osr, ogr
 
 sys.path.append('/usr/bin/')
@@ -15,10 +16,13 @@ warnings.filterwarnings("ignore")
 def Usage():
     print('Usage: trueColour(args)')
 
-def trueColour(inputDirectory, outputDirectory, display_text = None, productSpecifications = None):
+
+def trueColour(inputDirectory, outputDirectory, productSpecifications = None):
 
     # get the TIL files
     tiff_files = generic.findFiles(inputDirectory, ('tiff', 'tif'))
+    # exclude browse
+    tiff_files = list(filter(lambda filename: '_browser.' not in filename, tiff_files))
 
     num_til_files = len(tiff_files)
 
@@ -32,11 +36,11 @@ def trueColour(inputDirectory, outputDirectory, display_text = None, productSpec
     ps_tif_files = []
     for tiff_file in tiff_files:
         filename = os.path.basename(tiff_file)
-        if '_PSH' in filename:
+        if '_PSH1_' in filename:
             ps_tif_files.append(tiff_file)
-        elif '_MSS' in filename:
+        elif '_MS1_' in filename or '_MS_' in filename:
             mul_tif_files.append(tiff_file)
-        elif '_PAN' in filename:
+        elif '_PAN1_' in filename or '_PAN_' in filename:
             pan_tif_files.append(tiff_file)
         else:
             ps_tif_files.append(tiff_file)
@@ -45,7 +49,10 @@ def trueColour(inputDirectory, outputDirectory, display_text = None, productSpec
     if len(pan_tif_files) > 0:
         for pan_tif_file in pan_tif_files:
             # look for matching mul file
-            mul_tif_file_name = os.path.basename(pan_tif_file).replace('_PAN', '_MSS')
+            if '_PAN1_' in filename:
+                mul_tif_file_name = os.path.basename(pan_tif_file).replace('_PAN1_', '_MS1_')
+            else:
+                mul_tif_file_name = os.path.basename(pan_tif_file).replace('_PAN_', '_MS_')
             mul_tif_files = list(filter(lambda file: os.path.basename(file) == mul_tif_file_name, mul_tif_files))
             if len(mul_tif_files) == 0:
                 raise_error(f'Missing MUL file for PAN file {pan_tif_file}')
@@ -73,7 +80,7 @@ def trueColour(inputDirectory, outputDirectory, display_text = None, productSpec
         if numBands == 3:
             bands = [1, 2, 3]
         elif numBands == 4:
-            bands = [1, 2, 3] #[3, 2, 1]
+            bands = [3, 2, 1]
         else:
             raise_error("Number of bands not supported: ", numBands)
 
@@ -82,7 +89,7 @@ def trueColour(inputDirectory, outputDirectory, display_text = None, productSpec
         products.append(product)
 
     generic.writeOutput(outputDirectory, True, "True colour generation using geocento process", products)
-    print("True Colour script finished for HEAD JILIN product(s) at " + inputDirectory)
+    print("True Colour script finished for Geosat product(s) at " + inputDirectory)
 
 
 def output(imageFilePath, outputDirectory, start = None, bands = [1,2,3], srcNoData = None, scaleMethod = 'cumulative', numBands = 3, outputname='productOutput.tiff'):
@@ -100,7 +107,7 @@ def output(imageFilePath, outputDirectory, start = None, bands = [1,2,3], srcNoD
     print("FOOTPRINT: " + productFootprintWKT)
 
     ds = gdal.Warp(imagePath, ds, format = 'VRT',
-                   dstSRS = 'EPSG:4326')
+              dstSRS = 'EPSG:4326')
 
     #Convert to tiff file with 3 bands only.
     print("Translating to tiff file.")
@@ -165,7 +172,7 @@ def output(imageFilePath, outputDirectory, start = None, bands = [1,2,3], srcNoD
         "SRS":"EPSG:4326",
         "envelopCoordinatesWKT": productFootprintWKT,
         "filePath": outputFilePath,
-        "description": "True colour image from HEAD JILIN platform",
+        "description": "True colour image from Maxar platform",
         "publish": True,
         "publishFilePath": outputname,
         "publishSLD": "raster"

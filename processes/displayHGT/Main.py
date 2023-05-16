@@ -41,11 +41,12 @@ def displayHGT(inputDirectory, outputDirectory, display_text = None, productSpec
     warpedDs = gdal.Warp('temp', ds, format = 'MEM', cutlineDSName = cutline_filepath,
                   cropToCutline = True, dstSRS = 'EPSG:4326', warpOptions = ['GDALWARP_DENSIFY_CUTLINE=NO'])
 
-    tempFilePath = outputDirectory + '/temp.tiff';
-    [scaleParams, exponents] = generic.getScaleParams(warpedDs, 255)
+    tempFilePath = os.path.join(outputDirectory, 'temp.tiff');
+    [scaleParams, exponents] = generic.getScaleParams(warpedDs, 255, numBands=1)
     ds = gdal.Translate(tempFilePath, warpedDs, outputType = gdal.GDT_Byte, scaleParams = scaleParams, exponents = exponents, format = 'GTiff')
     executeOverviews(ds)
-    outputFilePath = outputDirectory+ '/productOutput.tiff'
+    file_name = 'productOutput.tiff'
+    outputFilePath = os.path.join(outputDirectory, file_name)
     ds = gdal.Translate(outputFilePath, ds, format = 'GTiff')
 
     # a bit of clean up
@@ -58,7 +59,10 @@ def displayHGT(inputDirectory, outputDirectory, display_text = None, productSpec
         "SRS":"EPSG:4326",
         "envelopCoordinatesWKT": footprint_wkt,
         "filePath": outputFilePath,
-        "description": "HGT tiff rendering using geocento process on file " + str(hgt_file)
+        "description": "HGT tiff rendering using geocento process on file " + str(hgt_file),
+        "publish": True,
+        "publishFilePath": file_name,
+        "publishSLD": "raster"
     }
     generic.writeOutput(outputDirectory, True, "HGT tiff rendering using geocento process", [product])
 

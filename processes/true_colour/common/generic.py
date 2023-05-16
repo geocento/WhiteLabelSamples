@@ -278,7 +278,7 @@ def getSimpleScaleParams(datafile, maxScale = None, numBands = 3):
     return [scaleParams, exponents];
 
 
-def get_cumulative_scale_params(datafile, max_scale = None, num_bands = None):
+def get_cumulative_scale_params(datafile, max_scale = None, num_bands = None, srcNoData=None):
 
     if datafile is None:
         print('No dataset provided')
@@ -303,6 +303,9 @@ def get_cumulative_scale_params(datafile, max_scale = None, num_bands = None):
 
         # check if we have a no data value
         noData = srcband.GetNoDataValue()
+        # override if specified
+        if srcNoData is not None:
+            noData = srcNoData
 
         values = srcband.ReadAsArray()
         if noData is not None:
